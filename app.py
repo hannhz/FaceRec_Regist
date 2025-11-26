@@ -290,8 +290,12 @@ def get_images_and_labels():
     
     if faces:
         print(f"[TRAINING] Loaded {len(faces)} images for {len(nik_counts)} unique NIKs from {DATA_DIR}")
-        for nik, count in sorted(nik_counts.items()):
-            print(f"  - NIK {nik}: {count} images")
+        # Print first 10 NIKs to avoid excessive console output
+        for i, (nik, count) in enumerate(sorted(nik_counts.items())):
+            if i < 10:
+                print(f"  - NIK {nik}: {count} images")
+            elif i == 10:
+                print(f"  - ... and {len(nik_counts) - 10} more NIKs")
     return faces, ids
 
 def train_model_blocking():

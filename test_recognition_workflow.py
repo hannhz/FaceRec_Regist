@@ -11,6 +11,9 @@ import numpy as np
 # Add parent dir to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Test constants
+TEST_NIK = 9999999999999999  # Dummy NIK for testing
+
 def test_threshold_values():
     """Test that threshold values are properly set"""
     print("Test 1: Verify threshold values...")
@@ -94,17 +97,16 @@ def test_preprocessing_consistency():
         
         # Note: save_face_images_from_frame will try to detect faces and may return 0
         # We just verify it doesn't crash
-        test_nik = 9999999999999999
-        result = save_face_images_from_frame(dummy_bgr, "Test", test_nik, 1)
+        result = save_face_images_from_frame(dummy_bgr, "Test", TEST_NIK, 1)
         print(f"  ✓ save_face_images_from_frame executed (saved: {result})")
         
         # Clean up any test files
         import glob
-        for f in glob.glob(os.path.join(DATA_DIR, f"{test_nik}.*.jpg")):
+        for f in glob.glob(os.path.join(DATA_DIR, f"{TEST_NIK}.*.jpg")):
             try:
                 os.remove(f)
-            except:
-                pass
+            except (OSError, FileNotFoundError) as e:
+                print(f"  ⚠ Warning: Failed to remove test file {f}: {e}")
         
         return True
     except Exception as e:
