@@ -120,8 +120,9 @@ def test_file_naming():
     try:
         from app import list_existing_samples
         
-        # This should not raise error even if no files exist
-        count = list_existing_samples(1234567890123456)
+        # Test with a dummy NIK (16 digits)
+        TEST_NIK = 1234567890123456
+        count = list_existing_samples(TEST_NIK)
         print(f"  ✓ list_existing_samples works (found: {count})")
         return True
     except Exception as e:

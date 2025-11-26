@@ -219,9 +219,9 @@ def save_face_images_from_frame(img_bgr, name: str, nik: int, idx: int) -> int:
     return 1
 
 def augment_img(img):
-    """Augment grayscale numpy img: flip/bright/rotate kecil."""
+    """Augment grayscale numpy img: flip/bright/rotate small angle."""
     out = img.copy()
-    # Jangan equalizeHist lagi karena sudah di-preprocess saat save
+    # Don't equalizeHist again since already preprocessed at save time
     out = cv2.convertScaleAbs(out, alpha=1.05, beta=5)
     h, w = out.shape[:2]
     M = cv2.getRotationMatrix2D((w//2, h//2), 3, 1.0)
@@ -656,13 +656,13 @@ def admin_update_patient():
             if nik != old_nik and conn.execute("SELECT 1 FROM patients WHERE nik = ?", (nik,)).fetchone():
                 return jsonify(ok=False, msg=f"NIK {nik} sudah terdaftar untuk pasien lain."), 409
 
-            # Update hanya NIK, DOB, dan Address (NAMA TIDAK DIUBAH)
+            # Update only NIK, DOB, and Address (NAME is NOT changed)
             conn.execute("""
                 UPDATE patients SET nik=?, dob=?, address=? WHERE nik=?
             """, (nik, dob, address, old_nik))
             conn.commit()
 
-        # Jika NIK berubah, rename semua file gambar terkait DAN RETRAIN
+        # If NIK changed, rename all image files AND RETRAIN model
         if nik != old_nik:
             renamed_count = 0
             pattern = os.path.join(DATA_DIR, f"{old_nik}.*.jpg")
