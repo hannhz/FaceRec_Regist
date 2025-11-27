@@ -749,15 +749,24 @@ def suggest_threshold() -> float:
 
 # ====== INITIALIZATION ======
 
+_initialized = False
+_init_lock = threading.Lock()
+
 def initialize():
-    """Initialize face engine at startup"""
-    init_embedding_db()
-    load_all_embeddings()
-    
-    # Pre-warm face detection (optional, may take time)
-    # _get_face_app()
-    
-    logger.info("Face engine initialized")
+    """Initialize face engine at startup (thread-safe)"""
+    global _initialized
+    with _init_lock:
+        if _initialized:
+            return  # Already initialized
+        
+        init_embedding_db()
+        load_all_embeddings()
+        
+        # Pre-warm face detection (optional, may take time)
+        # _get_face_app()
+        
+        _initialized = True
+        logger.info("Face engine initialized")
 
 
 def is_available() -> bool:
