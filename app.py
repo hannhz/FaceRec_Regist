@@ -559,15 +559,12 @@ def api_register():
     if FACE_ENGINE == "insightface":
         try:
             enrolled, msg = face_engine.enroll_multiple_frames(frames, nik, min_embeddings=5)
-            if enrolled == 0:
-                with db_connect() as conn:
-                    conn.execute("DELETE FROM patients WHERE nik = ?", (nik,))
-                    conn.commit()
-                logger.warning(f"[REGISTER] InsightFace failed for NIK {nik}: {msg}")
-                return jsonify(ok=False, msg=f"Registrasi gagal: {msg}"), 400
-            
-            logger.info(f"[REGISTER] InsightFace success for NIK {nik}: {enrolled} embeddings")
-            return jsonify(ok=True, msg=f"Registrasi OK (InsightFace). {enrolled} embedding berhasil disimpan.")
+            if enrolled > 0:
+                logger.info(f"[REGISTER] InsightFace success for NIK {nik}: {enrolled} embeddings")
+                return jsonify(ok=True, msg=f"Registrasi OK (InsightFace). {enrolled} embedding berhasil disimpan.")
+            else:
+                # InsightFace couldn't enroll, fall through to LBPH fallback
+                logger.warning(f"[REGISTER] InsightFace returned 0 enrollments for NIK {nik}: {msg}, trying LBPH fallback")
         except Exception as e:
             logger.error(f"[REGISTER] InsightFace error: {e}")
             # Fall through to LBPH fallback
@@ -637,31 +634,31 @@ def api_recognize():
     if FACE_ENGINE == "insightface":
         try:
             result = face_engine.recognize_face_multi_frame(frames)
-            if result is None:
-                logger.info("[RECOGNIZE] InsightFace: No match found")
-                return jsonify(ok=True, found=False, msg="Tidak dikenali.")
-            
-            nik = result['nik']
-            with db_connect() as conn:
-                row = conn.execute(
-                    "SELECT nik, name, dob, address FROM patients WHERE nik = ?",
-                    (nik,)
-                ).fetchone()
-            
-            if not row:
-                return jsonify(ok=True, found=False, msg="NIK tidak ditemukan di database.")
-            
-            age = calculate_age(row["dob"])
-            confidence = result.get('confidence', int(result['similarity'] * 100))
-            
-            logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}")
-            return jsonify(
-                ok=True, found=True,
-                nik=row["nik"], name=row["name"], dob=row["dob"], address=row["address"],
-                age=age, confidence=confidence,
-                engine="insightface",
-                similarity=result['similarity']
-            )
+            if result is not None:
+                nik = result['nik']
+                with db_connect() as conn:
+                    row = conn.execute(
+                        "SELECT nik, name, dob, address FROM patients WHERE nik = ?",
+                        (nik,)
+                    ).fetchone()
+                
+                if row:
+                    age = calculate_age(row["dob"])
+                    confidence = result.get('confidence', int(result['similarity'] * 100))
+                    
+                    logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}")
+                    return jsonify(
+                        ok=True, found=True,
+                        nik=row["nik"], name=row["name"], dob=row["dob"], address=row["address"],
+                        age=age, confidence=confidence,
+                        engine="insightface",
+                        similarity=result['similarity']
+                    )
+                else:
+                    logger.warning(f"[RECOGNIZE] InsightFace matched NIK {nik} but not found in patients DB, trying LBPH")
+            else:
+                # InsightFace couldn't recognize, fall through to LBPH
+                logger.info("[RECOGNIZE] InsightFace: No match found, trying LBPH fallback")
         except Exception as e:
             logger.error(f"[RECOGNIZE] InsightFace error: {e}")
             # Fall through to LBPH fallback

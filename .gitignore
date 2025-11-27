@@ -9,6 +9,7 @@ model/Trainer.yml
 model/labels.pkl
 model/last_dataset.sig
 model/*.npy
+model/*.zip
 
 # Python
 __pycache__/
