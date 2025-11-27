@@ -638,31 +638,31 @@ def api_recognize():
     if FACE_ENGINE == "insightface":
         try:
             result = face_engine.recognize_face_multi_frame(frames)
-            if result is None:
-                logger.info("[RECOGNIZE] InsightFace: No match found")
-                return jsonify(ok=True, found=False, msg="Tidak dikenali.")
-            
-            nik = result['nik']
-            with db_connect() as conn:
-                row = conn.execute(
-                    "SELECT nik, name, dob, address FROM patients WHERE nik = ?",
-                    (nik,)
-                ).fetchone()
-            
-            if not row:
-                return jsonify(ok=True, found=False, msg="NIK tidak ditemukan di database.")
-            
-            age = calculate_age(row["dob"])
-            confidence = result.get('confidence', int(result['similarity'] * 100))
-            
-            logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}")
-            return jsonify(
-                ok=True, found=True,
-                nik=row["nik"], name=row["name"], dob=row["dob"], address=row["address"],
-                age=age, confidence=confidence,
-                engine="insightface",
-                similarity=result['similarity']
-            )
+            if result is not None:
+                nik = result['nik']
+                with db_connect() as conn:
+                    row = conn.execute(
+                        "SELECT nik, name, dob, address FROM patients WHERE nik = ?",
+                        (nik,)
+                    ).fetchone()
+                
+                if row:
+                    age = calculate_age(row["dob"])
+                    confidence = result.get('confidence', int(result['similarity'] * 100))
+                    
+                    logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}")
+                    return jsonify(
+                        ok=True, found=True,
+                        nik=row["nik"], name=row["name"], dob=row["dob"], address=row["address"],
+                        age=age, confidence=confidence,
+                        engine="insightface",
+                        similarity=result['similarity']
+                    )
+                else:
+                    logger.warning(f"[RECOGNIZE] InsightFace matched NIK {nik} but not found in patients DB, trying LBPH")
+            else:
+                # InsightFace couldn't recognize, fall through to LBPH
+                logger.info("[RECOGNIZE] InsightFace: No match found, trying LBPH fallback")
         except Exception as e:
             logger.error(f"[RECOGNIZE] InsightFace error: {e}")
             # Fall through to LBPH fallback
