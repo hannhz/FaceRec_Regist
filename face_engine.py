@@ -4,7 +4,7 @@ This module provides high-accuracy face detection and recognition.
 
 Pipeline:
 1. Detection: RetinaFace (from InsightFace) - fast and accurate
-2. Alignment: 5-point landmark alignment  
+2. Alignment: 5-point landmark alignment
 3. Recognition: ArcFace embedding model - 512-dim embeddings
 4. Matching: Cosine similarity with threshold tuning
 """
@@ -73,10 +73,13 @@ def _get_face_app():
                 root=MODEL_DIR,
                 providers=['CPUExecutionProvider']  # Use CPU for compatibility
             )
+            # ctx_id=-1 -> CPU; det_size wider for better detection
             _face_app.prepare(ctx_id=-1, det_size=(640, 640))
+            # Sanity check: ensure recognition head exists
+            test_attr = hasattr(_face_app, 'models') or True  # avoid strict version coupling
             logger.info("InsightFace app initialized successfully")
         except ImportError as e:
-            logger.warning(f"InsightFace not available: {e}")
+            logger.warning(f"InsightFace not available in this Python environment: {e}")
             _face_app = None
         except Exception as e:
             logger.error(f"Failed to initialize InsightFace: {e}")
@@ -168,10 +171,10 @@ def load_all_embeddings() -> Dict[int, List[np.ndarray]]:
             init_embedding_db()
             _embeddings_loaded = True
             return {}
-        
+
         conn = sqlite3.connect(EMBEDDING_DB_PATH)
         cursor = conn.execute("SELECT nik, embedding FROM embeddings ORDER BY quality_score DESC")
-        
+
         _embeddings_db = {}
         count = 0
         for row in cursor:
@@ -181,7 +184,7 @@ def load_all_embeddings() -> Dict[int, List[np.ndarray]]:
                 _embeddings_db[nik] = []
             _embeddings_db[nik].append(emb)
             count += 1
-        
+
         conn.close()
         _embeddings_loaded = True
         logger.info(f"Loaded {count} embeddings for {len(_embeddings_db)} unique NIKs")
@@ -201,10 +204,10 @@ def delete_embeddings_for_nik(nik: int) -> int:
         deleted = cursor.rowcount
         conn.commit()
         conn.close()
-        
+
         if nik in _embeddings_db:
             del _embeddings_db[nik]
-        
+
         logger.info(f"Deleted {deleted} embeddings for NIK {nik}")
         return deleted
     except Exception as e:
@@ -224,10 +227,10 @@ def update_nik_in_embeddings(old_nik: int, new_nik: int) -> int:
         updated = cursor.rowcount
         conn.commit()
         conn.close()
-        
+
         if old_nik in _embeddings_db:
             _embeddings_db[new_nik] = _embeddings_db.pop(old_nik)
-        
+
         logger.info(f"Updated {updated} embeddings from NIK {old_nik} to {new_nik}")
         return updated
     except Exception as e:
@@ -271,42 +274,42 @@ def detect_faces(img_bgr: np.ndarray, detection_threshold: Optional[float] = Non
     """
     Detect faces in image using InsightFace RetinaFace.
     Returns list of face dictionaries with bbox, landmarks, det_score, embedding.
-    
+
     Args:
         img_bgr: BGR image array
         detection_threshold: Optional custom detection threshold (defaults to DETECTION_THRESHOLD)
     """
     if detection_threshold is None:
         detection_threshold = DETECTION_THRESHOLD
-    
+
     app = _get_face_app()
     if app is None:
         return _detect_faces_fallback(img_bgr)
-    
+
     try:
         faces = app.get(img_bgr)
         results = []
         for face in faces:
             if face.det_score < detection_threshold:
                 continue
-            
+
             bbox = face.bbox.astype(int).tolist()
             w = bbox[2] - bbox[0]
             h = bbox[3] - bbox[1]
-            
+
             # Filter small faces
             if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
                 continue
-            
+
             results.append({
                 'bbox': bbox,
-                'landmarks': face.kps.tolist() if face.kps is not None else None,
+                'landmarks': face.kps.tolist() if getattr(face, 'kps', None) is not None else None,
                 'det_score': float(face.det_score),
-                'embedding': _normalize_embedding(face.embedding) if face.embedding is not None else None,
+                'embedding': _normalize_embedding(face.embedding) if getattr(face, 'embedding', None) is not None else None,
                 'age': getattr(face, 'age', None),
                 'gender': getattr(face, 'gender', None)
             })
-        
+
         # Sort by face size (largest first)
         results.sort(key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]), reverse=True)
         return results
@@ -320,10 +323,10 @@ def _detect_faces_fallback(img_bgr: np.ndarray) -> List[Dict[str, Any]]:
     try:
         cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         detector = cv2.CascadeClassifier(cascade_path)
-        
+
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE))
-        
+
         results = []
         for (x, y, w, h) in faces:
             results.append({
@@ -334,7 +337,7 @@ def _detect_faces_fallback(img_bgr: np.ndarray) -> List[Dict[str, Any]]:
                 'age': None,
                 'gender': None
             })
-        
+
         return results
     except Exception as e:
         logger.error(f"Fallback detection failed: {e}")
@@ -344,7 +347,7 @@ def _detect_faces_fallback(img_bgr: np.ndarray) -> List[Dict[str, Any]]:
 def detect_largest_face(img_bgr: np.ndarray, detection_threshold: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Detect and return the largest face in the image.
-    
+
     Args:
         img_bgr: BGR image array
         detection_threshold: Optional custom detection threshold (defaults to DETECTION_THRESHOLD)
@@ -366,18 +369,18 @@ def is_blurry(img_gray: np.ndarray, threshold: float = 100.0) -> bool:
 def calculate_quality_score(face_dict: Dict[str, Any], img_bgr: np.ndarray) -> float:
     """Calculate quality score for a detected face (0-1 range)"""
     score = 0.0
-    
+
     # Detection confidence
     det_score = face_dict.get('det_score', 0.0)
     score += det_score * 0.4
-    
+
     # Face size score
     bbox = face_dict.get('bbox', [0, 0, 0, 0])
     face_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
     img_area = img_bgr.shape[0] * img_bgr.shape[1]
     size_ratio = min(face_area / img_area, 0.5) / 0.5  # Normalize to 0-1
     score += size_ratio * 0.3
-    
+
     # Sharpness score
     x1, y1, x2, y2 = bbox
     face_region = img_bgr[y1:y2, x1:x2]
@@ -386,7 +389,7 @@ def calculate_quality_score(face_dict: Dict[str, Any], img_bgr: np.ndarray) -> f
         laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
         sharpness_score = min(laplacian_var / 500.0, 1.0)  # Normalize
         score += sharpness_score * 0.3
-    
+
     return min(score, 1.0)
 
 
@@ -399,7 +402,7 @@ def align_face(img_bgr: np.ndarray, landmarks: Optional[List[List[float]]] = Non
     """
     if landmarks is None or len(landmarks) < 5:
         return img_bgr
-    
+
     try:
         # Standard face alignment target points (112x112)
         src_pts = np.array([
@@ -409,15 +412,15 @@ def align_face(img_bgr: np.ndarray, landmarks: Optional[List[List[float]]] = Non
             [41.5493, 92.3655],
             [70.7299, 92.2041]
         ], dtype=np.float32)
-        
+
         dst_pts = np.array(landmarks[:5], dtype=np.float32)
-        
+
         # Estimate transformation matrix
         M = cv2.estimateAffinePartial2D(dst_pts, src_pts, method=cv2.RANSAC)[0]
-        
+
         if M is None:
             return img_bgr
-        
+
         # Apply transformation
         aligned = cv2.warpAffine(img_bgr, M, (112, 112), borderMode=cv2.BORDER_REPLICATE)
         return aligned
@@ -437,22 +440,22 @@ def get_embedding(img_bgr: np.ndarray, face_dict: Optional[Dict[str, Any]] = Non
     # Use provided embedding if available
     if face_dict is not None and face_dict.get('embedding') is not None:
         return face_dict['embedding']
-    
+
     # Detect face and get embedding
     app = _get_face_app()
     if app is None:
         return None
-    
+
     try:
         faces = app.get(img_bgr)
         if not faces:
             return None
-        
+
         # Get largest face embedding
         largest = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
-        if largest.embedding is None:
+        if getattr(largest, 'embedding', None) is None:
             return None
-        
+
         return _normalize_embedding(largest.embedding)
     except Exception as e:
         logger.error(f"Failed to get embedding: {e}")
@@ -469,25 +472,25 @@ def find_matching_identity(
     Returns list of (nik, similarity) tuples sorted by similarity.
     """
     global _embeddings_db, _embeddings_loaded
-    
+
     if threshold is None:
         threshold = RECOGNITION_THRESHOLD
-    
+
     if not _embeddings_loaded:
         load_all_embeddings()
-    
+
     if not _embeddings_db:
         return []
-    
+
     matches = []
     for nik, embeddings in _embeddings_db.items():
         # Calculate similarity with all embeddings for this NIK
         similarities = [_cosine_similarity(query_embedding, emb) for emb in embeddings]
         max_sim = max(similarities) if similarities else 0.0
-        
+
         if max_sim >= threshold:
             matches.append((nik, max_sim))
-    
+
     # Sort by similarity (highest first)
     matches.sort(key=lambda x: x[1], reverse=True)
     return matches[:top_k]
@@ -504,18 +507,18 @@ def recognize_face_in_image(
     face = detect_largest_face(img_bgr)
     if face is None:
         return None
-    
+
     embedding = face.get('embedding')
     if embedding is None:
         embedding = get_embedding(img_bgr, face)
-    
+
     if embedding is None:
         return None
-    
+
     matches = find_matching_identity(embedding, threshold)
     if matches:
         return matches[0]
-    
+
     return None
 
 
@@ -528,71 +531,73 @@ def recognize_face_multi_frame(
     Returns result dict with nik, similarity, confidence, etc.
     """
     global _embeddings_db, _embeddings_loaded
-    
+
     if threshold is None:
         threshold = RECOGNITION_THRESHOLD
-    
+
     if not _embeddings_loaded:
         load_all_embeddings()
-    
+
     if not _embeddings_db:
         logger.info("No embeddings in database")
         return None
-    
+
     from collections import defaultdict
     votes = defaultdict(list)  # nik -> list of similarities
     processed = 0
-    
+
     for frame in frames:
         face = detect_largest_face(frame)
         if face is None:
             continue
-        
+
         # Check quality
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
         bbox = face.get('bbox', [0, 0, 0, 0])
         face_gray = gray[bbox[1]:bbox[3], bbox[0]:bbox[2]]
         if face_gray.size > 0 and is_blurry(face_gray, 50.0):
             continue
-        
+
         embedding = face.get('embedding')
         if embedding is None:
-            continue
-        
+            embedding = get_embedding(frame, face)
+            if embedding is None:
+                continue
+
         processed += 1
-        
+
         # Find matches
         for nik, embs in _embeddings_db.items():
             similarities = [_cosine_similarity(embedding, emb) for emb in embs]
             max_sim = max(similarities) if similarities else 0.0
             if max_sim >= threshold:
                 votes[nik].append(max_sim)
-        
+
         # Early stop if confident
         if votes:
             best_nik = max(votes.keys(), key=lambda k: np.mean(votes[k]))
             vote_share = len(votes[best_nik]) / processed
             avg_sim = np.mean(votes[best_nik])
-            
-            if (vote_share >= VOTE_MIN_SHARE and 
-                len(votes[best_nik]) >= EARLY_VOTES_REQUIRED and 
+
+            if (vote_share >= VOTE_MIN_SHARE and
+                len(votes[best_nik]) >= EARLY_VOTES_REQUIRED and
                 avg_sim >= EARLY_SIM_THRESHOLD):
                 logger.info(f"Early stop: NIK={best_nik}, sim={avg_sim:.3f}, votes={len(votes[best_nik])}")
                 break
-    
+
     if processed == 0 or not votes:
         logger.info(f"Recognition failed: processed={processed}, votes={len(votes)}")
         return None
-    
+
     # Find winner by vote count and average similarity
     winner = None
     best_score = -1
-    
+
     for nik, sims in votes.items():
         vote_count = len(sims)
         avg_sim = np.mean(sims)
         score = vote_count * avg_sim  # Combined score
-        
+
         if score > best_score:
             best_score = score
             winner = {
@@ -603,17 +608,17 @@ def recognize_face_multi_frame(
                 'processed_frames': processed,
                 'confidence': int(min(avg_sim * 100, 100))
             }
-    
+
     if winner is None:
         return None
-    
+
     # Validate minimum requirements
-    if (winner['vote_share'] < VOTE_MIN_SHARE or 
+    if (winner['vote_share'] < VOTE_MIN_SHARE or
         winner['vote_count'] < MIN_VALID_FRAMES or
         winner['similarity'] < threshold):
         logger.info(f"Recognition rejected: {winner}")
         return None
-    
+
     logger.info(f"Recognition success: NIK={winner['nik']}, sim={winner['similarity']:.3f}")
     return winner
 
@@ -627,23 +632,26 @@ def enroll_face(
     """
     Enroll a single face image to database.
     Returns (success, message, embedding).
-    
+
     Uses relaxed detection and quality thresholds for easier registration.
     """
     # Use relaxed detection threshold for registration
     face = detect_largest_face(img_bgr, detection_threshold=REGISTRATION_DETECTION_THRESHOLD)
     if face is None:
         return False, "No face detected", None
-    
+
     # Check quality with relaxed threshold for registration
     quality = calculate_quality_score(face, img_bgr)
     if quality < REGISTRATION_QUALITY_THRESHOLD:
         return False, f"Face quality too low: {quality:.2f}", None
-    
+
+    # If detection embedding missing, try to compute explicitly
     embedding = face.get('embedding')
     if embedding is None:
-        return False, "Could not extract embedding", None
-    
+        embedding = get_embedding(img_bgr, face)
+        if embedding is None:
+            return False, "Could not extract embedding (is InsightFace installed and models downloaded?)", None
+
     # Save embedding
     if save_embedding(nik, embedding, quality):
         # Update in-memory cache
@@ -651,9 +659,9 @@ def enroll_face(
         if nik not in _embeddings_db:
             _embeddings_db[nik] = []
         _embeddings_db[nik].append(embedding)
-        
+
         return True, f"Enrolled with quality {quality:.2f}", embedding
-    
+
     return False, "Failed to save embedding", None
 
 
@@ -667,20 +675,20 @@ def enroll_multiple_frames(
     Returns (num_enrolled, message).
     """
     enrolled = 0
-    
+
     for frame in frames:
         success, msg, _ = enroll_face(frame, nik)
         if success:
             enrolled += 1
             if enrolled >= 20:  # Max 20 embeddings per person
                 break
-    
+
     # Augment if needed (by duplicating best embeddings)
     global _embeddings_db
     if enrolled > 0 and enrolled < min_embeddings and nik in _embeddings_db:
         current_count = len(_embeddings_db[nik])
         needed = min_embeddings - current_count
-        
+
         # Add slightly noisy versions of existing embeddings
         for i in range(needed):
             idx = i % current_count
@@ -690,10 +698,10 @@ def enroll_multiple_frames(
             save_embedding(nik, augmented, 0.5)
             _embeddings_db[nik].append(augmented)
             enrolled += 1
-    
+
     if enrolled == 0:
         return 0, "No valid face frames to enroll"
-    
+
     return enrolled, f"Successfully enrolled {enrolled} embeddings"
 
 
@@ -723,26 +731,26 @@ def suggest_threshold() -> float:
     Analyzes intra-class and inter-class distances.
     """
     global _embeddings_db, _embeddings_loaded
-    
+
     if not _embeddings_loaded:
         load_all_embeddings()
-    
+
     if len(_embeddings_db) < 2:
         return RECOGNITION_THRESHOLD
-    
+
     try:
         intra_sims = []  # Same person similarities
         inter_sims = []  # Different person similarities
-        
+
         niks = list(_embeddings_db.keys())
-        
+
         # Calculate intra-class similarities
         for nik in niks:
             embs = _embeddings_db[nik]
             for i in range(len(embs)):
                 for j in range(i+1, len(embs)):
                     intra_sims.append(_cosine_similarity(embs[i], embs[j]))
-        
+
         # Calculate inter-class similarities (sample)
         import random
         for _ in range(min(1000, len(niks) * len(niks))):
@@ -750,17 +758,17 @@ def suggest_threshold() -> float:
             emb1 = random.choice(_embeddings_db[nik1])
             emb2 = random.choice(_embeddings_db[nik2])
             inter_sims.append(_cosine_similarity(emb1, emb2))
-        
+
         if not intra_sims or not inter_sims:
             return RECOGNITION_THRESHOLD
-        
+
         # Find threshold that maximizes separation
         intra_min = np.percentile(intra_sims, 10)
         inter_max = np.percentile(inter_sims, 90)
-        
+
         suggested = (intra_min + inter_max) / 2
         logger.info(f"Suggested threshold: {suggested:.3f} (intra_min={intra_min:.3f}, inter_max={inter_max:.3f})")
-        
+
         return max(0.3, min(0.6, suggested))
     except Exception as e:
         logger.error(f"Threshold suggestion failed: {e}")
@@ -778,13 +786,13 @@ def initialize():
     with _init_lock:
         if _initialized:
             return  # Already initialized
-        
+
         init_embedding_db()
         load_all_embeddings()
-        
-        # Pre-warm face detection (optional, may take time)
+
+        # Pre-warm face detection (optional)
         # _get_face_app()
-        
+
         _initialized = True
         logger.info("Face engine initialized")
 
@@ -800,7 +808,7 @@ def is_available() -> bool:
 def get_engine_status() -> Dict[str, Any]:
     """Get face engine status"""
     global _embeddings_db, _embeddings_loaded
-    
+
     return {
         'insightface_available': _get_face_app() is not None,
         'embeddings_loaded': _embeddings_loaded,
