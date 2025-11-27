@@ -563,15 +563,12 @@ def api_register():
     if FACE_ENGINE == "insightface":
         try:
             enrolled, msg = face_engine.enroll_multiple_frames(frames, nik, min_embeddings=5)
-            if enrolled == 0:
-                with db_connect() as conn:
-                    conn.execute("DELETE FROM patients WHERE nik = ?", (nik,))
-                    conn.commit()
-                logger.warning(f"[REGISTER] InsightFace failed for NIK {nik}: {msg}")
-                return jsonify(ok=False, msg=f"Registrasi gagal: {msg}"), 400
-            
-            logger.info(f"[REGISTER] InsightFace success for NIK {nik}: {enrolled} embeddings")
-            return jsonify(ok=True, msg=f"Registrasi OK (InsightFace). {enrolled} embedding berhasil disimpan.")
+            if enrolled > 0:
+                logger.info(f"[REGISTER] InsightFace success for NIK {nik}: {enrolled} embeddings")
+                return jsonify(ok=True, msg=f"Registrasi OK (InsightFace). {enrolled} embedding berhasil disimpan.")
+            else:
+                # InsightFace couldn't enroll, fall through to LBPH fallback
+                logger.warning(f"[REGISTER] InsightFace returned 0 enrollments for NIK {nik}: {msg}, trying LBPH fallback")
         except Exception as e:
             logger.error(f"[REGISTER] InsightFace error: {e}")
             # Fall through to LBPH fallback
