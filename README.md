@@ -1,71 +1,108 @@
-# WEB-FACE (Haar + DeepFace Upgrade)
+# WEB-FACE - Sistem Deteksi dan Pengenalan Wajah Akurat
 
-## Ringkasan
-Aplikasi web Flask untuk registrasi dan verifikasi wajah pasien rumah sakit. Deteksi wajah memakai Haar Cascade dari OpenCV, pengenalan wajah memakai DeepFace (model VGG-Face + cosine distance). Setiap pasien hanya menyimpan **1 foto representatif** terbaik di folder `data/database_wajah/`.
+Aplikasi web Flask untuk registrasi dan verifikasi wajah pasien rumah sakit. Menggunakan **InsightFace (RetinaFace + ArcFace)** untuk deteksi dan pengenalan wajah dengan akurasi tinggi.
 
-## Fitur
-- Registrasi pasien: kirim form + batch frame webcam (±10 frame), pilih 1 wajah terbaik, simpan 1 foto.
-- Verifikasi wajah: ambil batch frame (±6 frame), pilih 1 foto terbaik, DeepFace.find terhadap database.
-- Threshold cosine default: `< 0.40` dianggap match.
-- Admin Dashboard:
-  - Lihat daftar pasien (sorting + paginasi)
-  - Edit / Hapus pasien
-  - Statistik total pasien & total foto
-  - Manajemen antrian poli (Poli Umum, Poli Gigi, IGD) via tabel `queues`
-- API Queue untuk nomor antrian.
+## 🚀 Fitur Utama
 
-## Struktur Direktori
+- **Deteksi Wajah Akurat**: RetinaFace untuk deteksi real-time
+- **Pengenalan Wajah Modern**: ArcFace embedding (512 dimensi)
+- **Multi-Frame Voting**: Meningkatkan akurasi dengan analisis multiple frame
+- **Face Alignment**: Normalisasi posisi wajah untuk hasil optimal
+- **Auto-Fallback**: Otomatis ke LBPH jika InsightFace tidak tersedia
+
+## 📁 Struktur Direktori
+
 ```
 WEB-FACE/
-├── app.py
+├── app.py                    # Aplikasi Flask utama
+├── face_engine.py            # Engine deteksi dan pengenalan wajah
+├── requirements.txt          # Dependensi Python
+├── database.db               # Database SQLite (auto-generated)
 ├── data/
-│   └── database_wajah/    # 1 foto per NIK
+│   └── database_wajah/       # Penyimpanan gambar wajah (LBPH)
+├── model/
+│   ├── embeddings.db         # Database embedding (InsightFace)
+│   └── buffalo_l/            # Model InsightFace (auto-download)
 ├── templates/
 │   ├── user.html
-│   ├── admin_login.html   # login (tidak diubah di contoh)
+│   ├── admin_login.html
 │   └── admin_dashboard.html
-├── static/
-│   └── js/
-│       ├── user.js
-│       └── admin.js
-├── database.db
-├── requirements.txt
-└── README.md
+├── static/js/
+│   ├── user.js
+│   └── admin.js
+├── README.md                 # Dokumentasi singkat
+└── README_INSIGHTFACE.md     # Dokumentasi lengkap InsightFace
 ```
 
-## Instalasi
+## 🛠️ Instalasi Cepat
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+# Clone repository
+git clone https://github.com/lustresense/web-face.git
+cd web-face
+
+# Buat virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Jalankan aplikasi
 python app.py
 ```
 
-Akses:
-- User: http://127.0.0.1:5000/
-- Admin: http://127.0.0.1:5000/admin/login (default: admin / Cakra@123)
+## 🔗 Akses Aplikasi
 
-## Catatan Teknis
-- Tanggal lahir dikirim dari `<input type="date">` (format ISO YYYY-MM-DD) lalu dikonversi ke `DD-MM-YYYY` di backend.
-- DeepFace cache embedding (.pkl) dihapus setiap registrasi/hapus pasien agar embedding segar.
-- Jika ingin mengganti threshold: set env `DEEPFACE_THRESHOLD`, misal `export DEEPFACE_THRESHOLD=0.38`.
+- **User**: http://127.0.0.1:5000/
+- **Admin**: http://127.0.0.1:5000/admin/login
+  - Username: `admin`
+  - Password: `Cakra@123`
 
-## API Ringkas
-| Endpoint | Method | Deskripsi |
-|----------|--------|-----------|
-| /api/register | POST (multipart) | Registrasi pasien + frames[] |
-| /api/recognize | POST (multipart) | Verifikasi wajah (frames[]) |
-| /api/patients | GET | List pasien |
-| /api/patient/<nik> | GET | Detail pasien |
-| /api/patient/<nik> | PUT (JSON) | Edit pasien |
-| /api/patient/<nik> | DELETE | Hapus pasien |
-| /api/queue/status | GET | Status nomor berikutnya |
-| /api/queue/assign | POST (JSON {"poli":"Poli Umum"}) | Ambil nomor antrian |
-| /api/queue/set | POST (admin only) | Set/Reset nomor berikutnya |
+## 📊 Arsitektur Pipeline
 
-## Pengembangan
-- Jika ingin menambah detektor lain (MediaPipe), cukup ubah fungsi `detect_largest_face`.
-- Untuk alignment lanjutan, bisa normalisasi crop wajah sebelum simpan/recognize.
+```
+Input Webcam → Deteksi (RetinaFace) → Alignment → 
+Extract Embedding (ArcFace) → Normalize (L2) → 
+Compare (Cosine Similarity) → Multi-Frame Voting → Output
+```
 
-## Lisensi
+## ⚙️ Konfigurasi
+
+| Variable | Default | Deskripsi |
+|----------|---------|-----------|
+| `USE_INSIGHTFACE` | `1` | Set ke `0` untuk gunakan LBPH |
+| `RECOGNITION_THRESHOLD` | `0.4` | Threshold similarity (0-1) |
+| `DETECTION_THRESHOLD` | `0.5` | Threshold deteksi wajah |
+
+## 📚 Dokumentasi Lengkap
+
+Lihat **[README_INSIGHTFACE.md](README_INSIGHTFACE.md)** untuk:
+- Setup detail
+- Arsitektur sistem
+- Tips meningkatkan akurasi
+- API Reference
+- Troubleshooting
+
+## 🧪 Testing
+
+```bash
+python test_basic.py
+python test_recognition_workflow.py
+```
+
+## 📝 Changelog
+
+### v2.0.0 (Current)
+- Migrasi ke InsightFace (RetinaFace + ArcFace)
+- Face alignment dengan 5-point landmarks
+- SQLite embedding storage
+- Multi-frame voting dengan early stop
+- Auto-fallback ke LBPH
+
+### v1.0.0 (Legacy)
+- Haar Cascade + LBPH
+
+## 📄 Lisensi
+
 Internal / Sesuai kebutuhan proyek.
