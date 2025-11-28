@@ -874,5 +874,32 @@ def admin_update_patient():
         logger.error(f"Error update patient: {e}")
         return jsonify(ok=False, msg=f"Terjadi error di server: {e}"), 500
 
+    # ... (kode sebelumnya tetap sama)
+
+# ====== API BARU: CHECK FACE (Untuk Auto-Trigger) ======
+@app.post("/api/check_face")
+def api_check_face():
+    """
+    API ringan untuk mengecek apakah ada wajah di frame.
+    Digunakan untuk auto-trigger di frontend.
+    """
+    file = request.files.get("frame")
+    if not file:
+        return jsonify(ok=False, found=False)
+    
+    try:
+        # Baca gambar
+        img = bytes_to_bgr(file.read())
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Deteksi wajah (gunakan fungsi yang sudah ada)
+        # Kita pakai deteksi cepat saja
+        roi, rect = detect_largest_face(gray)
+        
+        found = roi is not None
+        return jsonify(ok=True, found=found)
+    except Exception:
+        return jsonify(ok=False, found=False)
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)

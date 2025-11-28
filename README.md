@@ -230,3 +230,4 @@ python test_recognition_workflow.py
 ## 📄 Lisensi
 
 Internal / Sesuai kebutuhan proyek.# FaceRec_Regist
+# FaceRec_Regist
